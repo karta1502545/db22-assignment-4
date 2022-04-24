@@ -32,6 +32,8 @@ class BufferPoolMgr {
 	private Buffer[] bufferPool;
 	private Map<BlockId, Buffer> blockMap;
 	private int numAvailable, lastReplacedBuff;
+	private Object[] subPool;
+	private int sizeOfSubPool;
 
 	/**
 	 * Creates a buffer manager having the specified number of buffer slots. This
@@ -56,6 +58,9 @@ class BufferPoolMgr {
 
 		if (logger.isLoggable(Level.INFO))
 			logger.info("Buffer pool is ready (assignment 4 version)");
+		
+		sizeOfSubPool = 30;
+		subPool = new Object[sizeOfSubPool];
 	}
 
 	/**
@@ -66,6 +71,14 @@ class BufferPoolMgr {
 			buff.flush();
 	}
 
+	private Object getSubPoolIdByFileName(String fileName) {
+		return subPool[fileName.hashCode() % sizeOfSubPool];
+	}
+
+	private Object getSubPoolIdByBlkId(BlockId blk) {
+		return subPool[blk.fileName().hashCode() % sizeOfSubPool];
+	}
+
 	/**
 	 * Pins a buffer to the specified block. If there is already a buffer assigned
 	 * to that block then that buffer is used; otherwise, an unpinned buffer from
@@ -74,22 +87,24 @@ class BufferPoolMgr {
 	 * @param blk a block ID
 	 * @return the pinned buffer
 	 */
-	synchronized Buffer pin(BlockId blk) {
-		Buffer buff = findExistingBuffer(blk);
-		if (buff == null) {
-			buff = chooseUnpinnedBuffer();
-			if (buff == null)
-				return null;
-			BlockId oldBlk = buff.block();
-			if (oldBlk != null)
-				blockMap.remove(oldBlk);
-			buff.assignToBlock(blk);
-			blockMap.put(blk, buff);
+	Buffer pin(BlockId blk) {
+		synchronized (getSubPoolIdByBlkId(blk)) {
+			Buffer buff = findExistingBuffer(blk);
+			if (buff == null) {
+				buff = chooseUnpinnedBuffer();
+				if (buff == null)
+					return null;
+				BlockId oldBlk = buff.block();
+				if (oldBlk != null)
+					blockMap.remove(oldBlk);
+				buff.assignToBlock(blk);
+				blockMap.put(blk, buff);
+			}
+			if (!buff.isPinned())
+				numAvailable--;
+			buff.pin();
+			return buff;
 		}
-		if (!buff.isPinned())
-			numAvailable--;
-		buff.pin();
-		return buff;
 	}
 
 	/**
@@ -100,19 +115,21 @@ class BufferPoolMgr {
 	 * @param fmtr     a pageformatter object, used to format the new block
 	 * @return the pinned buffer
 	 */
-	synchronized Buffer pinNew(String fileName, PageFormatter fmtr) {
-		Buffer buff = chooseUnpinnedBuffer();
-		if (buff == null)
-			return null;
-		BlockId oldBlk = buff.block();
-		if (oldBlk != null)
-			blockMap.remove(oldBlk);
+	Buffer pinNew(String fileName, PageFormatter fmtr) {
+		synchronized (getSubPoolIdByFileName(fileName)) {
+			Buffer buff = chooseUnpinnedBuffer();
+			if (buff == null)
+				return null;
+			BlockId oldBlk = buff.block();
+			if (oldBlk != null)
+				blockMap.remove(oldBlk);
 
-		buff.assignToNew(fileName, fmtr);
-		numAvailable--;
-		buff.pin();
-		blockMap.put(buff.block(), buff);
-		return buff;
+			buff.assignToNew(fileName, fmtr); // assign a new block and a new buffer for "contents"
+			numAvailable--;
+			buff.pin();
+			blockMap.put(buff.block(), buff);
+			return buff;
+		}
 	}
 
 	/**
