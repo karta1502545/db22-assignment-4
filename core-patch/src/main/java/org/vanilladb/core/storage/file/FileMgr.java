@@ -79,6 +79,13 @@ public class FileMgr {
 		LOG_FILES_DIR = logDir;
 	}
 
+	private Object[] subFile;
+	private int sizeOfSubFile;
+	
+	private Object getSubFileIdByFileName(String fileName) {
+		return subFile[fileName.hashCode() % sizeOfSubFile];
+	}
+
 	/**
 	 * Creates a file manager for the specified database. The database will be
 	 * stored in a folder of that name in the user's home directory. If the
@@ -121,7 +128,7 @@ public class FileMgr {
 	 * @param buffer
 	 *            the byte buffer
 	 */
-	synchronized void read(BlockId blk, IoBuffer buffer) {
+	void read(BlockId blk, IoBuffer buffer) {
 		try {
 			IoChannel fileChannel = getFileChannel(blk.fileName());
 
@@ -144,7 +151,7 @@ public class FileMgr {
 	 * @param buffer
 	 *            the byte buffer
 	 */
-	synchronized void write(BlockId blk, IoBuffer buffer) {
+	void write(BlockId blk, IoBuffer buffer) {
 		try {
 			IoChannel fileChannel = getFileChannel(blk.fileName());
 
@@ -168,7 +175,7 @@ public class FileMgr {
 	 *            the byte buffer
 	 * @return a block ID refers to the newly-created block.
 	 */
-	synchronized BlockId append(String fileName, IoBuffer buffer) {
+	BlockId append(String fileName, IoBuffer buffer) {
 		try {
 			IoChannel fileChannel = getFileChannel(fileName);
 
@@ -195,7 +202,7 @@ public class FileMgr {
 	 * 
 	 * @return the number of blocks in the file
 	 */
-	public synchronized long size(String fileName) {
+	public long size(String fileName) {
 		try {
 			IoChannel fileChannel = getFileChannel(fileName);
 			return fileChannel.size() / BLOCK_SIZE;
@@ -238,17 +245,19 @@ public class FileMgr {
 	 * @throws IOException
 	 */
 	private IoChannel getFileChannel(String fileName) throws IOException {
-		IoChannel fileChannel = openFiles.get(fileName);
+		synchronized(getSubFileIdByFileName(fileName))	{
+			IoChannel fileChannel = openFiles.get(fileName);
 
-		if (fileChannel == null) {
-			File dbFile = fileName.equals(DEFAULT_LOG_FILE) ? new File(logDirectory, fileName)
-					: new File(dbDirectory, fileName);
-			fileChannel = IoAllocator.newIoChannel(dbFile);
+				if (fileChannel == null) {
+					File dbFile = fileName.equals(DEFAULT_LOG_FILE) ? new File(logDirectory, fileName)
+							: new File(dbDirectory, fileName);
+					fileChannel = IoAllocator.newIoChannel(dbFile);
 
-			openFiles.put(fileName, fileChannel);
+					openFiles.put(fileName, fileChannel);
+				}
+
+				return fileChannel;
 		}
-
-		return fileChannel;
 	}
 
 	/**
@@ -257,17 +266,20 @@ public class FileMgr {
 	 * @param fileName
 	 *            the name of the target file
 	 */
-	public synchronized void delete(String fileName) {
+	public void delete(String fileName) {
 		try {
-			// Close file, if it was opened
-			IoChannel fileChannel = openFiles.remove(fileName);
-			if (fileChannel != null)
-				fileChannel.close();
+			synchronized(getSubFileIdByFileName(fileName))	{
+				// Close file, if it was opened
+				IoChannel fileChannel = openFiles.remove(fileName);
+				if (fileChannel != null)
+					fileChannel.close();
 
-			// Delete the file
-			boolean hasDeleted = new File(dbDirectory, fileName).delete();
-			if (!hasDeleted && logger.isLoggable(Level.WARNING))
-				logger.warning("cannot delete file: " + fileName);
+				// Delete the file
+				boolean hasDeleted = new File(dbDirectory, fileName).delete();
+				if (!hasDeleted && logger.isLoggable(Level.WARNING))
+					logger.warning("cannot delete file: " + fileName);
+			}
+				
 		} catch (IOException e) {
 			if (logger.isLoggable(Level.WARNING))
 				logger.warning("there is something wrong when deleting " + fileName);
