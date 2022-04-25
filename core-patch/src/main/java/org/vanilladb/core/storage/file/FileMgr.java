@@ -54,6 +54,9 @@ public class FileMgr {
 	private boolean isNew;
 	private Map<String, IoChannel> openFiles = new ConcurrentHashMap<String, IoChannel>();
 	
+	private int sizeOfSubFile = 999;
+	private Object[] subFile = new Object[sizeOfSubFile];
+
 	static {
 		String dbDir = CoreProperties.getLoader().getPropertyAsString(FileMgr.class.getName() + ".DB_FILES_DIR",
 				System.getProperty("user.home"));
@@ -77,10 +80,8 @@ public class FileMgr {
 
 		DB_FILES_DIR = dbDir;
 		LOG_FILES_DIR = logDir;
-	}
 
-	private Object[] subFile;
-	private int sizeOfSubFile;
+	}	
 	
 	private Object getSubFileIdByFileName(String fileName) {
 		return subFile[fileName.hashCode() % sizeOfSubFile];
@@ -118,6 +119,7 @@ public class FileMgr {
 
 		if (logger.isLoggable(Level.INFO))
 			logger.info("block size " + Page.BLOCK_SIZE);
+
 	}
 
 	/**
