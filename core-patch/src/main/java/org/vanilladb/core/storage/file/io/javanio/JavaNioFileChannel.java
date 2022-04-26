@@ -23,42 +23,71 @@ import java.nio.channels.FileChannel;
 import org.vanilladb.core.storage.file.io.IoBuffer;
 import org.vanilladb.core.storage.file.io.IoChannel;
 
+import java.util.concurrent.locks.*;
+
 public class JavaNioFileChannel implements IoChannel {
 
 	private FileChannel fileChannel;
+	private ReadWriteLock lock;
 
 	public JavaNioFileChannel(File file) throws IOException {
 		@SuppressWarnings("resource")
 		RandomAccessFile f = new RandomAccessFile(file, "rws");
 		fileChannel = f.getChannel();
+		lock = new ReentrantReadWriteLock();
 	}
 
 	@Override
 	public int read(IoBuffer buffer, long position) throws IOException {
-		JavaNioByteBuffer javaBuffer = (JavaNioByteBuffer) buffer;
-		return fileChannel.read(javaBuffer.getByteBuffer(), position);
+		lock.readLock().lock();
+		try {
+			JavaNioByteBuffer javaBuffer = (JavaNioByteBuffer) buffer;
+			return fileChannel.read(javaBuffer.getByteBuffer(), position);
+		} finally {
+			lock.readLock().unlock();
+		}
 	}
 
 	@Override
 	public int write(IoBuffer buffer, long position) throws IOException {
-		JavaNioByteBuffer javaBuffer = (JavaNioByteBuffer) buffer;
-		return fileChannel.write(javaBuffer.getByteBuffer(), position);
+		lock.writeLock().lock();
+		try {
+			JavaNioByteBuffer javaBuffer = (JavaNioByteBuffer) buffer;
+			return fileChannel.write(javaBuffer.getByteBuffer(), position);
+		} finally {
+			lock.writeLock().unlock();
+		}
 	}
 
 	@Override
 	public long append(IoBuffer buffer) throws IOException {
-		JavaNioByteBuffer javaBuffer = (JavaNioByteBuffer) buffer;
-		fileChannel.write(javaBuffer.getByteBuffer(), size());
-		return size();
+		lock.writeLock().lock();
+		try {
+			JavaNioByteBuffer javaBuffer = (JavaNioByteBuffer) buffer;
+			fileChannel.write(javaBuffer.getByteBuffer(), size());
+			return size();
+		} finally {
+			lock.writeLock().unlock();
+		}
 	}
 
 	@Override
 	public long size() throws IOException {
-		return fileChannel.size();
+		lock.readLock().lock();
+		try {
+			return fileChannel.size();
+		} finally {
+			lock.readLock().unlock();
+		}
 	}
 
 	@Override
 	public void close() throws IOException {
-		fileChannel.close();
+		lock.writeLock().lock();
+		try {
+			fileChannel.close();
+		} finally {
+			lock.writeLock().unlock();
+		}
 	}
 }

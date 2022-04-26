@@ -25,40 +25,69 @@ import net.smacke.jaydio.buffer.AlignedDirectByteBuffer;
 import net.smacke.jaydio.channel.BufferedChannel;
 import net.smacke.jaydio.channel.DirectIoByteChannel;
 
+import java.util.concurrent.locks.*;
+
 public class JaydioDirectIoChannel implements IoChannel {
 
 	private BufferedChannel<AlignedDirectByteBuffer> fileChannel;
+	private ReadWriteLock lock;
 
 	public JaydioDirectIoChannel(File file) throws IOException {
 		fileChannel = DirectIoByteChannel.getChannel(file, false);
+		lock = new ReentrantReadWriteLock();
 	}
 
 	@Override
 	public int read(IoBuffer buffer, long position) throws IOException {
-		JaydioDirectByteBuffer jaydioBuffer = (JaydioDirectByteBuffer) buffer;
-		return fileChannel.read(jaydioBuffer.getAlignedDirectByteBuffer(), position);
+		lock.readLock().lock();
+		try {
+			JaydioDirectByteBuffer jaydioBuffer = (JaydioDirectByteBuffer) buffer;
+			return fileChannel.read(jaydioBuffer.getAlignedDirectByteBuffer(), position);
+		} finally {
+			lock.readLock().unlock();
+		}
 	}
 
 	@Override
 	public int write(IoBuffer buffer, long position) throws IOException {
-		JaydioDirectByteBuffer jaydioBuffer = (JaydioDirectByteBuffer) buffer;
-		return fileChannel.write(jaydioBuffer.getAlignedDirectByteBuffer(), position);
+		lock.writeLock().lock();
+		try {
+			JaydioDirectByteBuffer jaydioBuffer = (JaydioDirectByteBuffer) buffer;
+			return fileChannel.write(jaydioBuffer.getAlignedDirectByteBuffer(), position);
+		} finally {
+			lock.writeLock().unlock();
+		}
 	}
 
 	@Override
 	public long append(IoBuffer buffer) throws IOException {
-		JaydioDirectByteBuffer jaydioBuffer = (JaydioDirectByteBuffer) buffer;
-		fileChannel.write(jaydioBuffer.getAlignedDirectByteBuffer(), size());
-		return size();
+		lock.writeLock().lock();
+		try {
+			JaydioDirectByteBuffer jaydioBuffer = (JaydioDirectByteBuffer) buffer;
+			fileChannel.write(jaydioBuffer.getAlignedDirectByteBuffer(), size());
+			return size();
+		} finally {
+			lock.writeLock().unlock();
+		}
 	}
 
 	@Override
 	public long size() throws IOException {
-		return fileChannel.size();
+		lock.readLock().lock();
+		try {
+			return fileChannel.size();
+		} finally {
+			lock.readLock().unlock();
+		}
 	}
 
 	@Override
 	public void close() throws IOException {
-		fileChannel.close();
+		lock.writeLock().lock();
+		try {
+			fileChannel.close();
+		} finally {
+			lock.writeLock().unlock();
+		}
 	}
 }
