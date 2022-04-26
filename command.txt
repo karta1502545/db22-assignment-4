@@ -1,0 +1,37 @@
+The Workflow of Benchmarking (1/2 - Load DB)
+1. Setup properties
+2. Run server.sh
+3. Run client-load.sh
+4. Wait for loading
+5. Shut down the server (by stopping the script)
+6. Run copy-db.sh
+
+The Workflow of Benchmarking (2/2 - Benchmark)
+1. Setup properties
+2. Run reset-db.sh
+3. Run server.sh
+4. Run client-bench.sh
+5. Wait for benchmarking
+6. Shut down the server (by stopping the script)
+
+Commands
+(1/2 - Load DB)
+// setup properties
+cd ~/Desktop/database/db22-assignment-4/benchmark/server
+./server.sh
+cd ~/Desktop/database/db22-assignment-4/benchmark/client
+./client-load.sh
+// shut down server.sh
+./copy-db.sh
+
+(2/2 - Benchmark)
+// setup properties
+cd ~/Desktop/database/db22-assignment-4/benchmark/server
+./reset-db.sh
+./server.sh
+cd ~/Desktop/database/db22-assignment-4/benchmark/client
+./client-bench.sh
+// wait for result
+// shut down server.sh
+cd ~/benchmark_results
+
