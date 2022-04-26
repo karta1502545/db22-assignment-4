@@ -34,4 +34,3 @@ cd ~/Desktop/database/db22-assignment-4/benchmark/client
 // wait for result
 // shut down server.sh
 cd ~/benchmark_results
-
