@@ -19,22 +19,24 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.channels.FileChannel;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.vanilladb.core.storage.file.io.IoBuffer;
 import org.vanilladb.core.storage.file.io.IoChannel;
 
-import java.util.concurrent.locks.*;
-
 public class JavaNioFileChannel implements IoChannel {
 
 	private FileChannel fileChannel;
-	private ReadWriteLock lock;
+	private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+
+	// Optimization: store the size of each table
+	private long fileSize;
 
 	public JavaNioFileChannel(File file) throws IOException {
 		@SuppressWarnings("resource")
 		RandomAccessFile f = new RandomAccessFile(file, "rws");
 		fileChannel = f.getChannel();
-		lock = new ReentrantReadWriteLock();
+		fileSize = fileChannel.size();
 	}
 
 	@Override
@@ -53,7 +55,13 @@ public class JavaNioFileChannel implements IoChannel {
 		lock.writeLock().lock();
 		try {
 			JavaNioByteBuffer javaBuffer = (JavaNioByteBuffer) buffer;
-			return fileChannel.write(javaBuffer.getByteBuffer(), position);
+			int writeSize = fileChannel.write(javaBuffer.getByteBuffer(), position);
+			
+			// Check if we need to update the size
+			if (position + writeSize > fileSize)
+				fileSize = position + writeSize;
+			
+			return writeSize;
 		} finally {
 			lock.writeLock().unlock();
 		}
@@ -64,8 +72,9 @@ public class JavaNioFileChannel implements IoChannel {
 		lock.writeLock().lock();
 		try {
 			JavaNioByteBuffer javaBuffer = (JavaNioByteBuffer) buffer;
-			fileChannel.write(javaBuffer.getByteBuffer(), size());
-			return size();
+			int appendSize = fileChannel.write(javaBuffer.getByteBuffer(), fileSize);
+			fileSize += appendSize;
+			return fileSize;
 		} finally {
 			lock.writeLock().unlock();
 		}
@@ -75,7 +84,7 @@ public class JavaNioFileChannel implements IoChannel {
 	public long size() throws IOException {
 		lock.readLock().lock();
 		try {
-			return fileChannel.size();
+			return fileSize;
 		} finally {
 			lock.readLock().unlock();
 		}

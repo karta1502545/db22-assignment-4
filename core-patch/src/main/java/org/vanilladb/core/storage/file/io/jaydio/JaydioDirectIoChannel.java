@@ -17,6 +17,7 @@ package org.vanilladb.core.storage.file.io.jaydio;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.vanilladb.core.storage.file.io.IoBuffer;
 import org.vanilladb.core.storage.file.io.IoChannel;
@@ -25,16 +26,17 @@ import net.smacke.jaydio.buffer.AlignedDirectByteBuffer;
 import net.smacke.jaydio.channel.BufferedChannel;
 import net.smacke.jaydio.channel.DirectIoByteChannel;
 
-import java.util.concurrent.locks.*;
-
 public class JaydioDirectIoChannel implements IoChannel {
 
 	private BufferedChannel<AlignedDirectByteBuffer> fileChannel;
-	private ReadWriteLock lock;
+	private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+
+	// Optimization: store the size of each table
+	private long fileSize;
 
 	public JaydioDirectIoChannel(File file) throws IOException {
 		fileChannel = DirectIoByteChannel.getChannel(file, false);
-		lock = new ReentrantReadWriteLock();
+		fileSize = fileChannel.size();
 	}
 
 	@Override
@@ -46,6 +48,7 @@ public class JaydioDirectIoChannel implements IoChannel {
 		} finally {
 			lock.readLock().unlock();
 		}
+
 	}
 
 	@Override
@@ -53,10 +56,17 @@ public class JaydioDirectIoChannel implements IoChannel {
 		lock.writeLock().lock();
 		try {
 			JaydioDirectByteBuffer jaydioBuffer = (JaydioDirectByteBuffer) buffer;
-			return fileChannel.write(jaydioBuffer.getAlignedDirectByteBuffer(), position);
+			int writeSize = fileChannel.write(jaydioBuffer.getAlignedDirectByteBuffer(), position);
+
+			// Check if we need to update the size
+			if (position + writeSize > fileSize)
+				fileSize = position + writeSize;
+
+			return writeSize;
 		} finally {
 			lock.writeLock().unlock();
 		}
+
 	}
 
 	@Override
@@ -64,18 +74,20 @@ public class JaydioDirectIoChannel implements IoChannel {
 		lock.writeLock().lock();
 		try {
 			JaydioDirectByteBuffer jaydioBuffer = (JaydioDirectByteBuffer) buffer;
-			fileChannel.write(jaydioBuffer.getAlignedDirectByteBuffer(), size());
-			return size();
+			int appendSize = fileChannel.write(jaydioBuffer.getAlignedDirectByteBuffer(), fileSize);
+			fileSize += appendSize;
+			return fileSize;
 		} finally {
 			lock.writeLock().unlock();
 		}
+
 	}
 
 	@Override
 	public long size() throws IOException {
 		lock.readLock().lock();
 		try {
-			return fileChannel.size();
+			return fileSize;
 		} finally {
 			lock.readLock().unlock();
 		}

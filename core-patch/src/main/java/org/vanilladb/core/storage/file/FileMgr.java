@@ -53,10 +53,9 @@ public class FileMgr {
 	private File dbDirectory, logDirectory;
 	private boolean isNew;
 	private Map<String, IoChannel> openFiles = new ConcurrentHashMap<String, IoChannel>();
+	// Optimization: if files art not empty, cache them
+	private ConcurrentHashMap<String, Boolean> fileNotEmptyCache;
 	
-	private int sizeOfSubFile = 999;
-	private Object[] subFile = new Object[sizeOfSubFile];
-
 	static {
 		String dbDir = CoreProperties.getLoader().getPropertyAsString(FileMgr.class.getName() + ".DB_FILES_DIR",
 				System.getProperty("user.home"));
@@ -80,13 +79,17 @@ public class FileMgr {
 
 		DB_FILES_DIR = dbDir;
 		LOG_FILES_DIR = logDir;
-
-	}	
-	
-	private Object getSubFileIdByFileName(String fileName) {
-		return subFile[fileName.hashCode() % sizeOfSubFile];
 	}
 
+	private final Object[] anchors = new Object[1009];
+
+	private Object prepareAnchor(Object o) {
+		int code = o.hashCode() % anchors.length;
+		if (code < 0)
+			code += anchors.length;
+		return anchors[code];
+	}
+	
 	/**
 	 * Creates a file manager for the specified database. The database will be
 	 * stored in a folder of that name in the user's home directory. If the
@@ -119,7 +122,11 @@ public class FileMgr {
 
 		if (logger.isLoggable(Level.INFO))
 			logger.info("block size " + Page.BLOCK_SIZE);
-
+		
+		for (int i = 0; i < anchors.length; ++i)
+			anchors[i] = new Object();
+		
+		fileNotEmptyCache = new ConcurrentHashMap<String, Boolean>();
 	}
 
 	/**
@@ -222,7 +229,14 @@ public class FileMgr {
 	 * @return whether a file is empty or not
 	 */
 	public boolean isFileEmpty(String fileName) {
-		return size(fileName) == 0;
+		boolean cacheMiss = !fileNotEmptyCache.containsKey(fileName);
+
+		// get the file size again, if cache miss occurs or the file is empty.
+		if (cacheMiss || !fileNotEmptyCache.get(fileName)) {
+			fileNotEmptyCache.put(fileName, size(fileName) > 0);
+		}
+		
+		return !fileNotEmptyCache.get(fileName);
 	}
 
 	/**
@@ -231,7 +245,7 @@ public class FileMgr {
 	 * 
 	 * @return true if the database is new
 	 */
-	public synchronized boolean isNew() {
+	public boolean isNew() {
 		return isNew;
 	}
 
@@ -247,18 +261,18 @@ public class FileMgr {
 	 * @throws IOException
 	 */
 	private IoChannel getFileChannel(String fileName) throws IOException {
-		synchronized(getSubFileIdByFileName(fileName))	{
+		synchronized (prepareAnchor(fileName)) {
 			IoChannel fileChannel = openFiles.get(fileName);
 
-				if (fileChannel == null) {
-					File dbFile = fileName.equals(DEFAULT_LOG_FILE) ? new File(logDirectory, fileName)
-							: new File(dbDirectory, fileName);
-					fileChannel = IoAllocator.newIoChannel(dbFile);
+			if (fileChannel == null) {
+				File dbFile = fileName.equals(DEFAULT_LOG_FILE) ? new File(logDirectory, fileName)
+						: new File(dbDirectory, fileName);
+				fileChannel = IoAllocator.newIoChannel(dbFile);
 
-					openFiles.put(fileName, fileChannel);
-				}
+				openFiles.put(fileName, fileChannel);
+			}
 
-				return fileChannel;
+			return fileChannel;
 		}
 	}
 
@@ -270,7 +284,7 @@ public class FileMgr {
 	 */
 	public void delete(String fileName) {
 		try {
-			synchronized(getSubFileIdByFileName(fileName))	{
+			synchronized (prepareAnchor(fileName)) {
 				// Close file, if it was opened
 				IoChannel fileChannel = openFiles.remove(fileName);
 				if (fileChannel != null)
@@ -281,7 +295,6 @@ public class FileMgr {
 				if (!hasDeleted && logger.isLoggable(Level.WARNING))
 					logger.warning("cannot delete file: " + fileName);
 			}
-				
 		} catch (IOException e) {
 			if (logger.isLoggable(Level.WARNING))
 				logger.warning("there is something wrong when deleting " + fileName);

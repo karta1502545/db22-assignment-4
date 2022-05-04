@@ -23,7 +23,10 @@ package org.vanilladb.core.storage.file;
 public class BlockId implements Comparable<BlockId> {
 	private String fileName;
 	private long blkNum;
-
+	// Optimization: Materialize the toString and hash value
+	private String myString;
+	private int myHashCode;
+		
 	/**
 	 * Constructs a block ID for the specified fileName and block number.
 	 * 
@@ -33,6 +36,13 @@ public class BlockId implements Comparable<BlockId> {
 	public BlockId(String fileName, long blkNum) {
 		this.fileName = fileName;
 		this.blkNum = blkNum;
+		// Optimization: Materialize the hash code
+		// Note: caching toString result does improve toString performance,
+		// but toString is actually rarely called. It also adds significant
+		// memory overhead to the system. So it would be better to leave
+		// it as what it is now.
+		myString = "[file " + fileName + ", block " + blkNum + "]";
+		myHashCode = toString().hashCode();
 	}
 
 	/**
@@ -79,11 +89,11 @@ public class BlockId implements Comparable<BlockId> {
 
 	@Override
 	public String toString() {
-		return "[file " + fileName + ", block " + blkNum + "]";
+		return myString;
 	}
 
 	@Override
 	public int hashCode() {
-		return toString().hashCode();
+		return myHashCode;
 	}
 }
